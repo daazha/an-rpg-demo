@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D RPG Demo - 完全体</title>
+    <style>
+        html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background-color: #000; }
+        #renderCanvas { width: 100%; height: 100%; touch-action: none; outline: none; }
+
+        /* --- 通用 UI --- */
+        .ui-layer { position: absolute; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .top-left { top: 20px; left: 20px; }
+        .top-right { top: 20px; right: 20px; align-items: flex-end; }
+        .bottom-center { bottom: 40px; left: 50%; transform: translateX(-50%); align-items: center; }
+        .ui-box {
+            background: rgba(0, 0, 0, 0.7); padding: 12px 16px; border-radius: 8px;
+            border: 1px solid rgba(0, 255, 136, 0.4); color: #e8e8f0;
+            font-family: 'Courier New', Courier, monospace; box-shadow: 0 0 15px rgba(0, 255, 136, 0.1);
+        }
+
+        /* --- 左上角：状态 --- */
+        .stat-row { display: flex; align-items: center; margin-bottom: 8px; font-size: 14px; }
+        .stat-row:last-child { margin-bottom: 0; }
+        .stat-label { width: 35px; font-weight: bold; color: #aaa; }
+        .stat-bar-bg { width: 120px; height: 12px; background: rgba(255,255,255,0.1); border-radius: 6px; overflow: hidden; margin: 0 8px; }
+        .stat-bar-fill { height: 100%; border-radius: 6px; transition: width 0.3s ease; }
+        .hp-fill { background: linear-gradient(90deg, #ff4d4d, #ff1a1a); }
+        .exp-fill { background: linear-gradient(90deg, #4dc3ff, #1a8fff); }
+        .stat-value { width: 60px; text-align: right; font-size: 12px; }
+        .level-text { font-size: 18px; font-weight: bold; color: #ffd700; text-shadow: 0 0 8px rgba(255, 215, 0, 0.5); }
+        .sp-text { font-size: 12px; color: #00ffcc; margin-top: 5px; }
+        .hint-text { font-size: 11px; color: #888; margin-top: 10px; line-height: 1.5;}
+
+        /* --- 右上角：系统 --- */
+        #time-display { font-size: 24px; font-weight: bold; letter-spacing: 2px; }
+        #weather-btn { pointer-events: auto; background: rgba(0, 255, 136, 0.15); color: #00ff88; border: 1px solid rgba(0, 255, 136, 0.5); padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: bold; cursor: pointer; }
+
+        /* --- 中下方：拾取提示 --- */
+        #pickup-msg {
+            font-size: 16px; color: #00ff88; font-weight: bold; opacity: 0;
+            transition: opacity 0.3s; text-shadow: 0 0 5px rgba(0,255,136,0.5);
+        }
+        #interact-hint {
+            font-size: 14px; color: #ffd700; display: none; margin-top: 5px;
+        }
+
+        /* --- 技能树面板 --- */
+        #skill-panel {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 600px; background: rgba(10, 12, 20, 0.95); border: 2px solid #ffd700;
+            border-radius: 12px; padding: 30px; display: none; z-index: 100;
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.2); pointer-events: auto;
+        }
+        .panel-title { text-align: center; font-size: 24px; color: #ffd700; margin-bottom: 25px; letter-spacing: 4px; }
+        .branches { display: flex; justify-content: space-around; }
+        .branch { display: flex; flex-direction: column; align-items: center; gap: 20px; width: 150px; }
+        .branch-name { color: #aaa; font-size: 14px; margin-bottom: 5px; border-bottom: 1px solid #444; padding-bottom: 5px; width: 100%; text-align: center; }
+        .skill-node {
+            width: 90px; height: 90px; border-radius: 50%; background: rgba(255,255,255,0.05);
+            border: 2px solid #444; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s;
+        }
+        .skill-name { font-size: 13px; color: #ccc; font-weight: bold; text-align: center; }
+        .skill-key { font-size: 10px; color: #888; margin-top: 5px; }
+        .skill-node.active { border-color: #00ffff; background: rgba(0, 255, 255, 0.1); box-shadow: 0 0 15px rgba(0, 255, 255, 0.4); }
+        .skill-node.active .skill-name { color: #fff; }
+        .skill-node.locked { opacity: 0.4; cursor: not-allowed; }
+
+        /* --- 背包面板 --- */
+        #inventory-panel {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 450px; background: rgba(10, 12, 20, 0.95); border: 2px solid #4dc3ff;
+            border-radius: 12px; padding: 25px; display: none; z-index: 100;
+            box-shadow: 0 0 30px rgba(77, 195, 255, 0.2); pointer-events: auto; color: #fff;
+        }
+        .inv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+        .inv-item { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px; }
+        .inv-icon { width: 30px; height: 30px; border-radius: 4px; }
+        .craft-section { border-top: 1px solid #444; padding-top: 15px; }
+        .craft-recipe { display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px; margin-bottom: 10px; }
+        .craft-btn { pointer-events: auto; background: #4dc3ff; color: #000; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .craft-btn:disabled { background: #555; color: #888; cursor: not-allowed; }
+    </style>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+</head>
+<body>
+    <canvas id="renderCanvas"></canvas>
+    
+    <!-- 左上角：状态 -->
+    <div class="ui-layer top-left">
+        <div class="ui-box">
+            <div class="stat-row"><span class="level-text">LV. <span id="ui-level">1</span></span></div>
+            <div class="stat-row">
+                <span class="stat-label" style="color:#ff4d4d">HP</span>
+                <div class="stat-bar-bg"><div id="ui-hp-bar" class="stat-bar-fill hp-fill" style="width: 100%"></div></div>
+                <span class="stat-value" id="ui-hp-text">100/100</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label" style="color:#4dc3ff">EXP</span>
+                <div class="stat-bar-bg"><div id="ui-exp-bar" class="stat-bar-fill exp-fill" style="width: 0%"></div></div>
+                <span class="stat-value" id="ui-exp-text">0/100</span>
+            </div>
+            <div class="sp-text">技能点: <span id="ui-sp">0</span></div>
+        </div>
+        <div class="ui-box hint-text">
+            [WASD] 移动 | [F] 获取经验<br>
+            [E] 拾取物品 | [1-6] 施放技能<br>
+            [K] 技能树 | [I] 背包/制作
+        </div>
+    </div>
+
+    <!-- 右上角：环境 -->
+    <div class="ui-layer top-right">
+        <div class="ui-box"><div id="time-display">12:00</div></div>
+        <button id="weather-btn" class="ui-box">切换天气: 晴天</button>
+    </div>
+
+    <!-- 中下方：拾取提示 -->
+    <div class="ui-layer bottom-center">
+        <div id="pickup-msg"></div>
+        <div id="interact-hint">按 E 拾取</div>
+    </div>
+
+    <!-- 技能树面板 -->
+    <div id="skill-panel">
+        <div class="panel-title">能 力 觉 醒</div>
+        <div class="branches">
+            <div class="branch">
+                <div class="branch-name">战 斗</div>
+                <div class="skill-node" data-skill="combat1" data-cost="1"><span class="skill-name">重击[1]</span><span class="skill-key">1 点</span></div>
+                <div class="skill-node locked" data-skill="combat2" data-requires="combat1" data-cost="1"><span class="skill-name">旋风斩[2]</span><span class="skill-key">1 点</span></div>
+            </div>
+            <div class="branch">
+                <div class="branch-name">魔 法</div>
+                <div class="skill-node" data-skill="magic1" data-cost="1"><span class="skill-name">火球术[3]</span><span class="skill-key">1 点</span></div>
+                <div class="skill-node locked" data-skill="magic2" data-requires="magic1" data-cost="2"><span class="skill-name">陨石[4]</span><span class="skill-key">2 点</span></div>
+            </div>
+            <div class="branch">
+                <div class="branch-name">生 存</div>
+                <div class="skill-node" data-skill="survival1" data-cost="1"><span class="skill-name">强韧[5]</span><span class="skill-key">1 点</span></div>
+                <div class="skill-node locked" data-skill="survival2" data-requires="survival1" data-cost="2"><span class="skill-name">汲取[6]</span><span class="skill-key">2 点</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 背包/制作面板 -->
+    <div id="inventory-panel">
+        <h3 style="text-align:center; color:#4dc3ff; margin-bottom:15px;">背 包</h3>
+        <div class="inv-grid">
+            <div class="inv-item"><div class="inv-icon" style="background:#8B4513"></div><span>木材: <span id="inv-wood">0</span></span></div>
+            <div class="inv-item"><div class="inv-icon" style="background:#808080"></div><span>石头: <span id="inv-stone">0</span></span></div>
+            <div class="inv-item"><div class="inv-icon" style="background:#9400D3"></div><span>水晶: <span id="inv-crystal">0</span></span></div>
+            <div class="inv-item"><div class="inv-icon" style="background:#C0C0C0"></div><span>铁剑: <span id="inv-sword">0</span></span></div>
+        </div>
+        <div class="craft-section">
+            <h3 style="text-align:center; color:#ffd700; margin-bottom:10px;">工 作 台</h3>
+            <div class="craft-recipe">
+                <span>配方: 2木材 + 1石头 = 铁剑</span>
+                <button id="craft-btn" class="craft-btn">合成</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('renderCanvas');
+        const engine = new BABYLON.Engine(canvas, true);
+        const pickupMsg = document.getElementById('pickup-msg');
+        const interactHint = document.getElementById('interact-hint');
+
+        // ================= RPG 数据状态 =================
+        let playerState = {
+            level: 1, hp: 100, maxHp: 100, exp: 0, expToLevel: 100, skillPoints: 0,
+            skills: { combat1: false, combat2: false, magic1: false, magic2: false, survival1: false, survival2: false },
+            inventory: { wood: 0, stone: 0, crystal: 0, sword: 0 }
+        };
+
+        let droppedItems = []; // 场景中的掉落物
+        let nearestItem = null; // 当前可拾取的物品
+        let pickupTimeout = null;
+
+        // UI 更新
+        function updateUI() {
+            document.getElementById('ui-level').innerText = playerState.level;
+            document.getElementById('ui-hp-text').innerText = `${playerState.hp}/${playerState.maxHp}`;
+            document.getElementById('ui-hp-bar').style.width = `${(playerState.hp / playerState.maxHp) * 100}%`;
+            document.getElementById('ui-exp-text').innerText = `${playerState.exp}/${playerState.expToLevel}`;
+            document.getElementById('ui-exp-bar').style.width = `${(playerState.exp / playerState.expToLevel) * 100}%`;
+            document.getElementById('ui-sp').innerText = playerState.skillPoints;
+            document.getElementById('inv-wood').innerText = playerState.inventory.wood;
+            document.getElementById('inv-stone').innerText = playerState.inventory.stone;
+            document.getElementById('inv-crystal').innerText = playerState.inventory.crystal;
+            document.getElementById('inv-sword').innerText = playerState.inventory.sword;
+            // 合成按钮状态
+            document.getElementById('craft-btn').disabled = !(playerState.inventory.wood >= 2 && playerState.inventory.stone >= 1);
+        }
+
+        function showPickupMsg(text) {
+            pickupMsg.innerText = text; pickupMsg.style.opacity = 1;
+            clearTimeout(pickupTimeout);
+            pickupTimeout = setTimeout(() => { pickupMsg.style.opacity = 0; }, 2000);
+        }
+
+        function gainExp(amount) {
+            playerState.exp += amount; showPickupMsg(`+${amount} EXP`);
+            if (playerState.exp >= playerState.expToLevel) {
+                playerState.exp -= playerState.expToLevel; playerState.level++; playerState.skillPoints += 2;
+                playerState.expToLevel = Math.floor(playerState.expToLevel * 1.5);
+                playerState.maxHp += 20; playerState.hp = playerState.maxHp;
+                showPickupMsg(`LEVEL UP!`);
+            }
+            updateUI();
+        }
+
+        function unlockSkill(skillId) {
+            const node = document.querySelector(`[data-skill="${skillId}"]`);
+            const cost = parseInt(node.getAttribute('data-cost'));
+            const requires = node.getAttribute('data-requires');
+            if (playerState.skills[skillId] || playerState.skillPoints < cost) return;
+            if (requires && !playerState.skills[requires]) return;
+            playerState.skillPoints -= cost; playerState.skills[skillId] = true;
+            node.classList.remove('locked'); node.classList.add('active');
+            document.querySelectorAll(`[data-requires="${skillId}"]`).forEach(n => n.classList.remove('locked'));
+            if(skillId.includes('survival')) { playerState.maxHp += 50; playerState.hp += 50; }
+            updateUI();
+        }
+        document.querySelectorAll('.skill-node').forEach(node => { node.addEventListener('click', () => unlockSkill(node.getAttribute('data-skill'))); });
+
+        // 合成逻辑
+        document.getElementById('craft-btn').addEventListener('click', () => {
+            if (playerState.inventory.wood >= 2 && playerState.inventory.stone >= 1) {
+                playerState.inventory.wood -= 2; playerState.inventory.stone -= 1;
+                playerState.inventory.sword++; showPickupMsg("合成成功: 铁剑!"); updateUI();
+            }
+        });
+
+        // ================= 场景创建 =================
+        const createScene = () => {
+            const scene = new BABYLON.Scene(engine);
+            scene.clearColor = new BABYLON.Color4(0.5, 0.7, 1.0, 1.0);
+            scene.collisionsEnabled = true;
+
+            // 辉光层：让发光材质真正"发光"
+            const gl = new BABYLON.GlowLayer("glow", scene); 
+            gl.intensity = 0.8;
+
+            const ambientLight = new BABYLON.HemisphericLight("ambientLight", new BABYLON.Vector3(0, 1, 0), scene);
+            ambientLight.intensity = 0.5;
+            const dirLight = new BABYLON.DirectionalLight("dirLight", new BABYLON.Vector3(-1, -2, -1), scene);
+            dirLight.position = new BABYLON.Vector3(100, 200, 100); dirLight.intensity = 0.8;
+
+            // 地面
+            const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 500, height: 500 }, scene);
+            const grassTexture = new BABYLON.DynamicTexture("grassTexture", 512, scene);
+            const ctx = grassTexture.getContext(); ctx.fillStyle = "#2d5a1e"; ctx.fillRect(0, 0, 512, 512);
+            for (let i = 0; i < 10000; i++) { ctx.fillStyle = Math.random() > 0.5 ? "#3a7a2a" : "#1f4a12"; ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 6); }
+            grassTexture.update();
+            const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+            groundMat.diffuseTexture = grassTexture; groundMat.diffuseTexture.uScale = 50; groundMat.diffuseTexture.vScale = 50;
+            ground.material = groundMat; ground.checkCollisions = true;
+
+            // 树木
+            const trunkMat = new BABYLON.StandardMaterial("trunkMat", scene); trunkMat.diffuseColor = new BABYLON.Color3(0.4, 0.2, 0.1);
+            const leavesMat = new BABYLON.StandardMaterial("leavesMat", scene); leavesMat.diffuseColor = new BABYLON.Color3(0.1, 0.5, 0.1);
+            for (let i = 0; i < 80; i++) {
+                let x = (Math.random() - 0.5) * 400, z = (Math.random() - 0.5) * 400;
+                let trunk = BABYLON.MeshBuilder.CreateCylinder("trunk" + i, { height: 4, diameter: 1 }, scene);
+                trunk.position = new BABYLON.Vector3(x, 2, z); trunk.material = trunkMat; trunk.checkCollisions = true;
+                let leaves = BABYLON.MeshBuilder.CreateCylinder("leaves" + i, { height: 6, diameterTop: 0, diameterBottom: 4, tessellation: 8 }, scene);
+                leaves.position = new BABYLON.Vector3(x, 7, z); leaves.material = leavesMat;
+            }
+
+            // 玩家
+            const player = BABYLON.MeshBuilder.CreateBox("player", { width: 1, height: 2, depth: 1 }, scene);
+            player.position.y = 1; player.checkCollisions = true;
+            const playerMat = new BABYLON.StandardMaterial("playerMat", scene); playerMat.diffuseColor = new BABYLON.Color3(0.2, 0.4, 0.8);
+            player.material = playerMat;
+
+            // 摄像机
+            const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 3, 10, player.position, scene);
+            camera.attachControl(canvas, true); camera.lowerBetaLimit = 0.3; camera.upperBetaLimit = Math.PI / 2.1;
+            camera.lowerRadiusLimit = 3; camera.upperRadiusLimit = 30; camera.checkCollisions = true;
+
+            // 天气
+            let gameTime = 720, timeSpeed = 5, isRaining = false;
+            const rainTexture = new BABYLON.DynamicTexture("rainTexture", 64, scene);
+            const rctx = rainTexture.getContext(); rctx.fillStyle = "rgba(0,0,0,0)"; rctx.fillRect(0,0,64,64); rctx.fillStyle = "#ffffff"; rctx.fillRect(30, 0, 4, 64); rainTexture.update();
+            const rain = new BABYLON.ParticleSystem("rain", 5000, scene);
+            rain.particleTexture = rainTexture; rain.emitter = player;
+            rain.minEmitBox = new BABYLON.Vector3(-40, 30, -40); rain.maxEmitBox = new BABYLON.Vector3(40, 30, 40);
+            rain.direction1 = new BABYLON.Vector3(-1, -15, -1); rain.direction2 = new BABYLON.Vector3(1, -15, 1);
+            rain.minLifeTime = 0.5; rain.maxLifeTime = 1.0; rain.emitRate = 0; rain.minSize = 0.1; rain.maxSize = 0.2; rain.start();
+            document.getElementById('weather-btn').addEventListener('click', () => { isRaining = !isRaining; rain.emitRate = isRaining ? 3000 : 0; document.getElementById('weather-btn').innerText = `切换天气: ${isRaining ? '雨天' : '晴天'}`; });
+
+            // ================= 物品掉落系统 =================
+            const itemMats = {
+                wood: new BABYLON.StandardMaterial("woodMat", scene), 
+                stone: new BABYLON.StandardMaterial("stoneMat", scene), 
+                crystal: new BABYLON.StandardMaterial("crystalMat", scene)
+            };
+            itemMats.wood.diffuseColor = new BABYLON.Color3(0.5, 0.3, 0.1); itemMats.wood.emissiveColor = new BABYLON.Color3(0.3, 0.1, 0);
+            itemMats.stone.diffuseColor = new BABYLON.Color3(0.6, 0.6, 0.6); itemMats.stone.emissiveColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+            itemMats.crystal.diffuseColor = new BABYLON.Color3(0.5, 0, 0.8); itemMats.crystal.emissiveColor = new BABYLON.Color3(0.6, 0, 1); // 辉光层会让紫色发光
+
+            function spawnItem(type, pos) {
+                const box = BABYLON.MeshBuilder.CreateBox(type + Date.now(), { size: 0.8 }, scene);
+                box.position = pos; box.position.y = 0.5;
+                box.material = itemMats[type]; box.rotation.y = Math.random() * Math.PI;
+                droppedItems.push({ mesh: box, type: type });
+            }
+
+            // 初始生成物品
+            for(let i=0; i<15; i++) {
+                let pos = new BABYLON.Vector3((Math.random()-0.5)*100, 0, (Math.random()-0.5)*100);
+                spawnItem(['wood', 'stone', 'crystal'][Math.floor(Math.random()*3)], pos);
+            }
+
+            // ================= 技能特效系统 =================
+            function castSkill(skillId) {
+                if (!playerState.skills[skillId]) return;
+
+                if (skillId === 'combat1') { // 重击：前方红色冲击波
+                    const wave = BABYLON.MeshBuilder.CreateTorus("wave", { diameter: 2, thickness: 0.2, tessellation: 16 }, scene);
+                    wave.position = player.position.clone(); wave.position.y = 1;
+                    wave.rotation.x = Math.PI / 2; wave.rotation.y = player.rotation.y;
+                    const waveMat = new BABYLON.StandardMaterial("waveMat", scene); waveMat.emissiveColor = new BABYLON.Color3(1, 0, 0); waveMat.disableLighting = true;
+                    wave.material = waveMat;
+                    let scale = 1; const interval = setInterval(() => { scale += 0.2; wave.scaling = new BABYLON.Vector3(scale, scale, scale); waveMat.alpha -= 0.1; if(waveMat.alpha <= 0) { clearInterval(interval); wave.dispose(); } }, 30);
+                } 
+                else if (skillId === 'combat2') { // 旋风斩：绕身旋转刀光
+                    for(let i=0; i<3; i++) {
+                        const blade = BABYLON.MeshBuilder.CreateBox("blade", {width: 3, height: 0.5, depth: 0.2}, scene);
+                        blade.position = player.position.clone(); blade.position.y = 1.5;
+                        const bMat = new BABYLON.StandardMaterial("bMat", scene); bMat.emissiveColor = new BABYLON.Color3(0, 1, 1); bMat.alpha = 0.7; blade.material = bMat;
+                        let angle = (Math.PI * 2 / 3) * i;
+                        const anim = new BABYLON.Animation("rot", "rotation.y", 30, BABYLON.Animation.ANIMATIONTYPE_FLOAT, BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE);
+                        anim.setKeys([{ frame: 0, value: angle }, { frame: 30, value: angle + Math.PI * 2 }]);
+                        blade.animations.push(anim); scene.beginAnimation(blade, 0, 30, false, 1, () => { blade.dispose(); });
+                    }
+                }
+                else if (skillId === 'magic1') { // 火球：向前发射
+                    const fireball = BABYLON.MeshBuilder.CreateSphere("fireball", {diameter: 1}, scene);
+                    const fMat = new BABYLON.StandardMaterial("fMat", scene); fMat.emissiveColor = new BABYLON.Color3(1, 0.5, 0); fireball.material = fMat;
+                    const forward = camera.getForwardRay().direction;
+                    fireball.position = player.position.clone(); fireball.position.y = 1;
+                    let t = 0; const interval = setInterval(() => { fireball.position.addInPlace(forward.scale(0.5)); t++; if(t > 60) { clearInterval(interval); fireball.dispose(); } }, 16);
+                }
+                else if (skillId === 'magic2') { // 陨石：前方落下大石头
+                    const rock = BABYLON.MeshBuilder.CreateSphere("meteor", {diameter: 3}, scene);
+                    const rMat = new BABYLON.StandardMaterial("rMat", scene); rMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0); rock.material = rMat;
+                    const targetPos = player.position.clone(); targetPos.addInPlace(camera.getForwardRay().direction.scale(10)); targetPos.y = 1;
+                    rock.position = targetPos.clone(); rock.position.y = 30;
+                    let t = 0; const interval = setInterval(() => { rock.position.y -= 0.5; t++; if(rock.position.y <= 1) { clearInterval(interval); rock.dispose(); /* 此处可加爆炸粒子 */ } }, 16);
+                }
+                else if (skillId === 'survival1') { // 强韧：金色护盾
+                    const shield = BABYLON.MeshBuilder.CreateSphere("shield", {diameter: 3}, scene);
+                    const sMat = new BABYLON.StandardMaterial("sMat", scene); sMat.emissiveColor = new BABYLON.Color3(1, 0.8, 0); sMat.alpha = 0.4; sMat.wireframe = true; shield.material = sMat;
+                    shield.position = player.position.clone(); shield.position.y = 1;
+                    let t = 0; const interval = setInterval(() => { shield.position = player.position.clone(); shield.position.y = 1; sMat.alpha -= 0.02; t++; if(t > 30) { clearInterval(interval); shield.dispose(); } }, 50);
+                }
+                else if (skillId === 'survival2') { // 汲取：绿色粒子向内汇聚
+                    const ps = new BABYLON.ParticleSystem("particles", 200, scene);
+                    ps.particleTexture = rainTexture; // 复用雨滴纹理
+                    ps.emitter = player; ps.minEmitBox = new BABYLON.Vector3(-3, 1, -3); ps.maxEmitBox = new BABYLON.Vector3(3, 3, 3);
+                    ps.direction1 = new BABYLON.Vector3(-1, -1, -1); ps.direction2 = new BABYLON.Vector3(1, -1, 1);
+                    ps.minLifeTime = 0.5; ps.maxLifeTime = 1; ps.emitRate = 500;
+                    ps.color1 = new BABYLON.Color4(0, 1, 0, 1); ps.color2 = new BABYLON.Color4(0, 1, 0, 1); ps.colorDead = new BABYLON.Color4(0, 1, 0, 0);
+                    ps.minSize = 0.1; ps.maxSize = 0.2; ps.gravity = new BABYLON.Vector3(0, -5, 0);
+                    ps.start(); setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 1000); }, 1000);
+                }
+            }
+
+            // ================= 核心游戏循环 =================
+            const moveSpeed = 15;
+            const keys = {};
+            let isPanelOpen = false;
+
+            window.addEventListener('keydown', (e) => {
+                const key = e.key.toLowerCase(); keys[key] = true;
+                if (key === 'k' || key === 'i') {
+                    const isSkill = key === 'k';
+                    const panel = isSkill ? document.getElementById('skill-panel') : document.getElementById('inventory-panel');
+                    const otherPanel = isSkill ? document.getElementById('inventory-panel') : document.getElementById('skill-panel');
+                    
+                    if (panel.style.display === 'block') { panel.style.display = 'none'; isPanelOpen = false; camera.attachControl(canvas, true); } 
+                    else { panel.style.display = 'block'; otherPanel.style.display = 'none'; isPanelOpen = true; camera.detachControl(); }
+                    updateUI();
+                }
+                if (key === 'f' && !isPanelOpen) gainExp(25);
+                if (key === 'e' && !isPanelOpen && nearestItem) {
+                    const item = nearestItem;
+                    playerState.inventory[item.type]++;
+                    showPickupMsg(`获得: ${item.type === 'wood' ? '木材' : item.type === 'stone' ? '石头' : '魔法水晶'}`);
+                    item.mesh.dispose();
+                    droppedItems = droppedItems.filter(i => i !== item);
+                    nearestItem = null; interactHint.style.display = 'none';
+                    updateUI();
+                }
+                // 技能快捷键 1-6
+                if (!isPanelOpen && ['1','2','3','4','5','6'].includes(key)) {
+                    const skillMap = ['combat1', 'combat2', 'magic1', 'magic2', 'survival1', 'survival2'];
+                    castSkill(skillMap[parseInt(key) - 1]);
+                }
+            });
+            window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+            scene.onBeforeRenderObservable.add(() => {
+                const delta = engine.getDeltaTime() / 1000;
+
+                // 昼夜逻辑
+                gameTime += delta * timeSpeed; if (gameTime >= 1440) gameTime -= 1440;
+                const sunAngle = ((gameTime - 360) / 1440) * Math.PI * 2; 
+                dirLight.position.x = Math.cos(sunAngle) * 100; dirLight.position.y = Math.sin(sunAngle) * 100;
+                dirLight.direction = BABYLON.Vector3.Normalize(dirLight.position.negate());
+                const sunHeight = Math.sin(sunAngle);
+                let skyR, skyG, skyB, lightInt, ambInt;
+                if (sunHeight > 0.1) { skyR=0.5;skyG=0.7;skyB=1.0;lightInt=Math.max(0.1,0.8*sunHeight);ambInt=0.5; }
+                else if (sunHeight > -0.1) { const t=(sunHeight+0.1)/0.2;skyR=0.8-t*0.3;skyG=0.4+t*0.3;skyB=0.2+t*0.8;lightInt=0.3;ambInt=0.3; }
+                else { skyR=0.05;skyG=0.05;skyB=0.15;lightInt=0.02;ambInt=0.15; }
+                if (isRaining) { const d=0.3;skyR*=d;skyG*=d;skyB*=d;lightInt*=0.4;ambInt*=0.6; }
+                scene.clearColor = new BABYLON.Color4(skyR, skyG, skyB, 1); dirLight.intensity = lightInt; ambientLight.intensity = ambInt;
+                document.getElementById('time-display').innerText = `${Math.floor(gameTime / 60).toString().padStart(2, '0')}:${Math.floor(gameTime % 60).toString().padStart(2, '0')}`;
+
+                // 移动逻辑
+                if (!isPanelOpen) {
+                    const forward = camera.getForwardRay().direction;
+                    const forwardVec = new BABYLON.Vector3(forward.x, 0, forward.z).normalize();
+                    const rightVec = BABYLON.Vector3.Cross(forwardVec, BABYLON.Axis.Y).normalize();
+                    let moveDir = BABYLON.Vector3.Zero();
+                    if (keys['w']) moveDir.addInPlace(forwardVec);
+                    if (keys['s']) moveDir.subtractInPlace(forwardVec);
+                    if (keys['d']) moveDir.addInPlace(rightVec);
+                    if (keys['a']) moveDir.subtractInPlace(rightVec);
+                    if (moveDir.length() > 0) {
+                        moveDir.normalize();
+                        player.position.addInPlace(moveDir.scale(moveSpeed * delta));
+                        player.rotation.y = BABYLON.Scalar.LerpAngle(player.rotation.y, Math.atan2(moveDir.x, moveDir.z), 0.2);
+                    }
+                }
+
+                // 物品旋转与拾取检测
+                nearestItem = null;
+                droppedItems.forEach(item => {
+                    item.mesh.rotation.y += delta;
+                    if (BABYLON.Vector3.Distance(player.position, item.mesh.position) < 3) {
+                        nearestItem = item;
+                    }
+                });
+                interactHint.style.display = nearestItem ? 'block' : 'none';
+            });
+
+            updateUI();
+            return scene;
+        };
+
+        const scene = createScene();
+        engine.runRenderLoop(() => { scene.render(); });
+        window.addEventListener('resize', () => { engine.resize(); });
+    </script>
+</body>
+</html>
