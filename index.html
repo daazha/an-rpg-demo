@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D RPG Demo - 完全重构版</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+            outline: none;
+        }
+
+        /* --- 通用 UI --- */
+        .ui-layer {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+        }
+
+        .top-left {
+            top: 20px;
+            left: 20px;
+        }
+
+        .top-right {
+            top: 20px;
+            right: 20px;
+            align-items: flex-end;
+        }
+
+        .bottom-center {
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            align-items: center;
+        }
+
+        .ui-box {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 255, 136, 0.4);
+            color: #e8e8f0;
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.1);
+        }
+
+        /* --- 状态栏 --- */
+        .stat-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .stat-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .stat-label {
+            width: 35px;
+            font-weight: bold;
+            color: #aaa;
+        }
+
+        .stat-bar-bg {
+            width: 120px;
+            height: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            overflow: hidden;
+            margin: 0 8px;
+        }
+
+        .stat-bar-fill {
+            height: 100%;
+            border-radius: 6px;
+            transition: width 0.3s ease;
+        }
+
+        .hp-fill {
+            background: linear-gradient(90deg, #ff4d4d, #ff1a1a);
+        }
+
+        .exp-fill {
+            background: linear-gradient(90deg, #4dc3ff, #1a8fff);
+        }
+
+        .stat-value {
+            width: 60px;
+            text-align: right;
+            font-size: 12px;
+        }
+
+        .level-text {
+            font-size: 18px;
+            font-weight: bold;
+            color: #ffd700;
+            text-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+        }
+
+        .sp-text {
+            font-size: 12px;
+            color: #00ffcc;
+            margin-top: 5px;
+        }
+
+        .hint-text {
+            font-size: 11px;
+            color: #888;
+            margin-top: 10px;
+            line-height: 1.5;
+        }
+
+        /* --- 时间显示 --- */
+        #time-display {
+            font-size: 24px;
+            font-weight: bold;
+            letter-spacing: 2px;
+        }
+
+        #weather-btn {
+            pointer-events: auto;
+            background: rgba(0, 255, 136, 0.15);
+            color: #00ff88;
+            border: 1px solid rgba(0, 255, 136, 0.5);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        #weather-btn:hover {
+            background: rgba(0, 255, 136, 0.3);
+        }
+
+        /* --- 消息提示 --- */
+        #pickup-msg {
+            font-size: 16px;
+            color: #00ff88;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.3s;
+            text-shadow: 0 0 5px rgba(0, 255, 136, 0.5);
+        }
+
+        #interact-hint {
+            font-size: 14px;
+            color: #ffd700;
+            display: none;
+            margin-top: 5px;
+        }
+
+        /* --- 技能树面板 --- */
+        #skill-panel {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 600px;
+            background: rgba(10, 12, 20, 0.95);
+            border: 2px solid #ffd700;
+            border-radius: 12px;
+            padding: 30px;
+            display: none;
+            z-index: 100;
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.2);
+            pointer-events: auto;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .panel-title {
+            text-align: center;
+            font-size: 24px;
+            color: #ffd700;
+            margin-bottom: 25px;
+            letter-spacing: 4px;
+        }
+
+        .branches {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .branch {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            width: 150px;
+        }
+
+        .branch-name {
+            color: #aaa;
+            font-size: 14px;
+            margin-bottom: 5px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .skill-node {
+            width: 90px;
+            height: 90px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid #444;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .skill-node:hover:not(.locked) {
+            transform: scale(1.05);
+        }
+
+        .skill-name {
+            font-size: 13px;
+            color: #ccc;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .skill-key {
+            font-size: 10px;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        .skill-node.active {
+            border-color: #00ffff;
+            background: rgba(0, 255, 255, 0.1);
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.4);
+        }
+
+        .skill-node.active .skill-name {
+            color: #fff;
+        }
+
+        .skill-node.locked {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* --- 背包面板 --- */
+        #inventory-panel {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 450px;
+            background: rgba(10, 12, 20, 0.95);
+            border: 2px solid #4dc3ff;
+            border-radius: 12px;
+            padding: 25px;
+            display: none;
+            z-index: 100;
+            box-shadow: 0 0 30px rgba(77, 195, 255, 0.2);
+            pointer-events: auto;
+            color: #fff;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .inv-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .inv-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 10px;
+            border-radius: 6px;
+        }
+
+        .inv-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 4px;
+        }
+
+        .craft-section {
+            border-top: 1px solid #444;
+            padding-top: 15px;
+        }
+
+        .craft-recipe {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+
+        .craft-btn {
+            pointer-events: auto;
+            background: #4dc3ff;
+            color: #000;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .craft-btn:hover:not(:disabled) {
+            background: #6dd4ff;
+            transform: scale(1.05);
+        }
+
+        .craft-btn:disabled {
+            background: #555;
+            color: #888;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        /* --- 响应式设计 --- */
+        @media (max-width: 768px) {
+            #skill-panel {
+                width: 90vw;
+                max-height: 70vh;
+            }
+
+            #inventory-panel {
+                width: 90vw;
+                max-height: 70vh;
+            }
+
+            .branches {
+                flex-direction: column;
+            }
+
+            .inv-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .ui-box {
+                font-size: 12px;
+            }
+        }
+    </style>
+
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/game-state.js"></script>
+    <script src="js/ui-system.js"></script>
+    <script src="js/skill-system.js"></script>
+    <script src="js/scene-manager.js"></script>
+    <script src="js/input-system.js"></script>
+    <script src="js/main.js"></script>
+</head>
+<body>
+    <!-- 3D渲染画布 -->
+    <canvas id="renderCanvas"></canvas>
+
+    <!-- 左上角：玩家状态 -->
+    <div class="ui-layer top-left">
+        <div class="ui-box">
+            <div class="stat-row"><span class="level-text">LV. <span id="ui-level">1</span></span></div>
+            <div class="stat-row">
+                <span class="stat-label" style="color:#ff4d4d">HP</span>
+                <div class="stat-bar-bg"><div id="ui-hp-bar" class="stat-bar-fill hp-fill" style="width: 100%"></div></div>
+                <span class="stat-value" id="ui-hp-text">100/100</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label" style="color:#4dc3ff">EXP</span>
+                <div class="stat-bar-bg"><div id="ui-exp-bar" class="stat-bar-fill exp-fill" style="width: 0%"></div></div>
+                <span class="stat-value" id="ui-exp-text">0/100</span>
+            </div>
+            <div class="sp-text">技能点: <span id="ui-sp">0</span></div>
+        </div>
+        <div class="ui-box hint-text">
+            <strong>⌨️ 快捷键:</strong><br>
+            [WASD] 移动 | [F] 获取EXP<br>
+            [E] 拾取物品 | [1-6] 技能<br>
+            [K] 技能树 | [I] 背包<br>
+            [Ctrl+S] 保存 | [Ctrl+R] 重置
+        </div>
+    </div>
+
+    <!-- 右上角：环境控制 -->
+    <div class="ui-layer top-right">
+        <div class="ui-box"><div id="time-display">12:00</div></div>
+        <button id="weather-btn" class="ui-box">切换天气: 晴天</button>
+    </div>
+
+    <!-- 中下方：交互提示 -->
+    <div class="ui-layer bottom-center">
+        <div id="pickup-msg"></div>
+        <div id="interact-hint">按 E 拾取</div>
+    </div>
+
+    <!-- 技能树面板 -->
+    <div id="skill-panel">
+        <div class="panel-title">能 力 觉 醒</div>
+        <div class="branches">
+            <div class="branch">
+                <div class="branch-name">战 斗</div>
+                <div class="skill-node" data-skill="combat1" data-cost="1"><span class="skill-name">重击[1]</span><span class="skill-key">1 点</span></div>
+                <div class="skill-node locked" data-skill="combat2" data-requires="combat1" data-cost="1"><span class="skill-name">旋风斩[2]</span><span class="skill-key">1 点</span></div>
+            </div>
+            <div class="branch">
+                <div class="branch-name">魔 法</div>
+                <div class="skill-node" data-skill="magic1" data-cost="1"><span class="skill-name">火球术[3]</span><span class="skill-key">1 点</span></div>
+                <div class="skill-node locked" data-skill="magic2" data-requires="magic1" data-cost="2"><span class="skill-name">陨石[4]</span><span class="skill-key">2 点</span></div>
+            </div>
+            <div class="branch">
+                <div class="branch-name">生 存</div>
+                <div class="skill-node" data-skill="survival1" data-cost="1"><span class="skill-name">强韧[5]</span><span class="skill-key">1 点</span></div>
+                <div class="skill-node locked" data-skill="survival2" data-requires="survival1" data-cost="2"><span class="skill-name">汲取[6]</span><span class="skill-key">2 点</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 背包/合成面板 -->
+    <div id="inventory-panel">
+        <h3 style="text-align:center; color:#4dc3ff; margin-bottom:15px;">背 包</h3>
+        <div class="inv-grid">
+            <div class="inv-item"><div class="inv-icon" style="background:#8B4513"></div><span>木材: <span id="inv-wood">0</span></span></div>
+            <div class="inv-item"><div class="inv-icon" style="background:#808080"></div><span>石头: <span id="inv-stone">0</span></span></div>
+            <div class="inv-item"><div class="inv-icon" style="background:#9400D3"></div><span>水晶: <span id="inv-crystal">0</span></span></div>
+            <div class="inv-item"><div class="inv-icon" style="background:#C0C0C0"></div><span>铁剑: <span id="inv-sword">0</span></span></div>
+        </div>
+        <div class="craft-section">
+            <h3 style="text-align:center; color:#ffd700; margin-bottom:10px;">工 作 台</h3>
+            <div class="craft-recipe">
+                <span>配方: 2木材 + 1石头 = 铁剑</span>
+                <button id="craft-btn" class="craft-btn">合成</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
